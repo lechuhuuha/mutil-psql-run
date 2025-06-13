@@ -1,0 +1,13 @@
+{
+  "markets": [
+    {
+      "name": "MY",
+      "host": "db-my.example.com",
+      "port": 5432,
+      "user": "you",
+      "password": "secret",
+      "dbname": "dbname_my",
+      "sslmode": "disable"
+    }
+  ]
+}
