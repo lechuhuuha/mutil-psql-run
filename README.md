@@ -6,10 +6,10 @@ A Go-based CLI tool to execute arbitrary SQL scripts across multiple PostgreSQL 
 
 ## Features
 
-* **Multi-market execution**: Loop through all markets defined in a JSON config and run the same SQL script.
+* **Market-specific SQL**: Write SQL for a specific market using comment headers like `-- MY`, `-- SG`, or use `-- ALL` for fallback.
+* **Multi-market execution**: Loops through all markets defined in a JSON config and runs only their designated SQL blocks.
 * **Transactional support**: Dry-run by default (rollback all changes) or commit mode.
 * **Per-statement feedback**:
-
   * **SELECT**: returns full rowsets as JSON arrays.
   * **Exec statements**: returns `lastInsertId`, `rowsAffected`, or a generic `executed` label.
 * **Customizable output**: Render results in a wrapped, aligned terminal table or write to an output file.
@@ -137,6 +137,12 @@ MY     | DROP TABLE public.keyword_boost;              | {"rowsAffected":1}
 ```
 
 If `--out out.txt` is provided, the same table is written to `out.txt`.
+
+---
+## Notes
+- SQL under `-- MY`, `-- SG`, etc. is only executed for matching markets.
+- If a market has no specific SQL, it will fall back to `-- ALL` if defined.
+- Unlabeled SQL (before any `-- MARKET`) is treated as part of `-- ALL`.
 
 ---
 

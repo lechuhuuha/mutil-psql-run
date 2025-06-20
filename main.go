@@ -11,12 +11,10 @@ import (
 	"strings"
 
 	_ "github.com/lib/pq"
-
 	"github.com/olekukonko/tablewriter"
 	"github.com/olekukonko/tablewriter/tw"
 )
 
-// DBConfig holds the connection info for a single market
 type DBConfig struct {
 	Name     string `json:"name"`
 	Host     string `json:"host"`
@@ -24,29 +22,25 @@ type DBConfig struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
 	DBName   string `json:"dbname"`
-	SSLMode  string `json:"sslmode"` // e.g. "disable"
+	SSLMode  string `json:"sslmode"`
 }
 
-// Config holds all market configs
 type Config struct {
 	Markets []DBConfig `json:"markets"`
 }
 
-// QueryResult pairs a SQL statement with its returned data
 type QueryResult struct {
 	Stmt string `json:"stmt"`
 	Data any    `json:"data"`
 }
 
 func main() {
-	// CLI flags
 	credsFile := flag.String("creds", "creds.json", "JSON file with database credentials")
 	sqlFile := flag.String("sql", "query.sql", "SQL file to execute on each database")
 	outputFile := flag.String("out", "out", "Optional output file for the results (defaults to stdout)")
 	commitFlag := flag.Bool("commit", false, "commit transactions if true; otherwise rollback")
 	flag.Parse()
 
-	// Load credentials
 	cfgData, err := os.ReadFile(*credsFile)
 	if err != nil {
 		log.Fatalf("Failed to read creds file: %v", err)
@@ -56,21 +50,24 @@ func main() {
 		log.Fatalf("Failed to parse creds JSON: %v", err)
 	}
 
-	// Load SQL script
-	scriptData, err := os.ReadFile(*sqlFile)
+	marketSQLs, err := parseMarketSQL(*sqlFile)
 	if err != nil {
-		log.Fatalf("Failed to read SQL file: %v", err)
+		log.Fatalf("Failed to parse market SQL: %v", err)
 	}
-	script := string(scriptData)
 
-	// Prepare results
 	tableData := [][]string{}
+	selectRe := regexp.MustCompile(`(?i)^\s*SELECT`)
 
-	// Regex to identify SELECT statements
-	selectRe := regexp.MustCompile(`(?i)^\s*SELECT`) // case-insensitive
-
-	// Loop markets
 	for _, m := range cfg.Markets {
+		sqlText, ok := marketSQLs[m.Name]
+		if !ok {
+			sqlText, ok = marketSQLs["ALL"]
+			if !ok {
+				tableData = append(tableData, []string{m.Name, "", "no SQL defined for this market"})
+				continue
+			}
+		}
+
 		connStr := fmt.Sprintf(
 			"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
 			m.Host, m.Port, m.User, m.Password, m.DBName, m.SSLMode,
@@ -88,8 +85,7 @@ func main() {
 			continue
 		}
 
-		// execute script
-		results, execErr := executeScript(tx, script, selectRe)
+		results, execErr := executeScript(tx, sqlText, selectRe)
 		if execErr != nil {
 			rbErr := tx.Rollback()
 			msg := fmt.Sprintf("exec error: %v", execErr)
@@ -100,7 +96,6 @@ func main() {
 			continue
 		}
 
-		// commit or rollback
 		if *commitFlag {
 			if cmErr := tx.Commit(); cmErr != nil {
 				tableData = append(tableData, []string{m.Name, "", fmt.Sprintf("commit error: %v", cmErr)})
@@ -113,7 +108,6 @@ func main() {
 			}
 		}
 
-		// append each query result
 		for _, qr := range results {
 			j, err := json.Marshal(qr.Data)
 			if err != nil {
@@ -129,13 +123,11 @@ func main() {
 	}
 	defer f.Close()
 
-	// Print results table
 	table := tablewriter.NewTable(f,
 		tablewriter.WithConfig(tablewriter.Config{
 			Row: tw.CellConfig{
-				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal}, // Wrap long content
-				Alignment:  tw.CellAlignment{Global: tw.AlignLeft},     // Left-align rows
-				// ColMaxWidths: tw.CellWidth{Global: 25},
+				Formatting: tw.CellFormatting{AutoWrap: tw.WrapNormal},
+				Alignment:  tw.CellAlignment{Global: tw.AlignLeft},
 			},
 			Footer: tw.CellConfig{
 				Alignment: tw.CellAlignment{Global: tw.AlignRight},
@@ -155,9 +147,35 @@ func main() {
 	}
 }
 
-// executeScript splits on semicolons and runs each statement, returning per-stmt responses
+func parseMarketSQL(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+	sqlByMarket := make(map[string][]string)
+	currentMarket := "ALL"
+
+	for _, line := range lines {
+		lineTrim := strings.TrimSpace(line)
+		if strings.HasPrefix(lineTrim, "--") {
+			marketTag := strings.TrimSpace(strings.TrimPrefix(lineTrim, "--"))
+			if marketTag != "" {
+				currentMarket = marketTag
+				continue
+			}
+		}
+		sqlByMarket[currentMarket] = append(sqlByMarket[currentMarket], line)
+	}
+
+	final := make(map[string]string)
+	for market, parts := range sqlByMarket {
+		final[market] = strings.Join(parts, "\n")
+	}
+	return final, nil
+}
+
 func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryResult, error) {
-	// split statements respecting $$
 	var stmts []string
 	var sb strings.Builder
 	inDollar := false
@@ -165,7 +183,7 @@ func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryR
 		if strings.HasPrefix(script[i:], "$$") {
 			inDollar = !inDollar
 			sb.WriteString("$$")
-			i += 1
+			i++
 			continue
 		}
 		c := script[i]
@@ -188,7 +206,6 @@ func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryR
 		var data any
 		var err error
 		if selectRe.MatchString(stmt) {
-			// fetch rows into slice of maps
 			rows, qErr := tx.Query(stmt)
 			if qErr != nil {
 				err = qErr
@@ -201,7 +218,7 @@ func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryR
 						ptrs[i] = &vals[i]
 					}
 					if err := rows.Scan(ptrs...); err != nil {
-						fmt.Println("rows scan encoutner error " + err.Error())
+						fmt.Println("rows scan error: " + err.Error())
 					}
 					row := map[string]any{}
 					for i, col := range cols {
@@ -216,7 +233,6 @@ func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryR
 				rows.Close()
 			}
 		} else {
-			// exec statement
 			res, xErr := tx.Exec(stmt)
 			if xErr != nil {
 				err = xErr
