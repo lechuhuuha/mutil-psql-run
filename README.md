@@ -10,7 +10,7 @@ A Go-based CLI tool to execute arbitrary SQL scripts across multiple PostgreSQL 
 * **Multi-market execution**: Loops through all markets defined in a JSON config and runs only their designated SQL blocks.
 * **Transactional support**: Dry-run by default (rollback all changes) or commit mode.
 * **Per-statement feedback**:
-  * **SELECT**: returns full rowsets as JSON arrays.
+  * **SELECT/SHOW**: returns full rowsets as JSON arrays.
   * **Exec statements**: returns `lastInsertId`, `rowsAffected`, or a generic `executed` label.
 * **Customizable output**: Render results in a wrapped, aligned terminal table or write to an output file.
 

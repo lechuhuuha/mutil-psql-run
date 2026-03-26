@@ -56,7 +56,7 @@ func main() {
 	}
 
 	tableData := [][]string{}
-	selectRe := regexp.MustCompile(`(?i)^\s*SELECT`)
+	rowQueryRe := regexp.MustCompile(`(?i)^\s*(SELECT|SHOW)\b`)
 
 	for _, m := range cfg.Markets {
 		sqlText, ok := marketSQLs[m.Name]
@@ -85,7 +85,7 @@ func main() {
 			continue
 		}
 
-		results, execErr := executeScript(tx, sqlText, selectRe)
+		results, execErr := executeScript(tx, sqlText, rowQueryRe)
 		if execErr != nil {
 			rbErr := tx.Rollback()
 			msg := fmt.Sprintf("exec error: %v", execErr)
@@ -175,7 +175,7 @@ func parseMarketSQL(path string) (map[string]string, error) {
 	return final, nil
 }
 
-func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryResult, error) {
+func executeScript(tx *sql.Tx, script string, rowQueryRe *regexp.Regexp) ([]QueryResult, error) {
 	var stmts []string
 	var sb strings.Builder
 	inDollar := false
@@ -205,7 +205,7 @@ func executeScript(tx *sql.Tx, script string, selectRe *regexp.Regexp) ([]QueryR
 		}
 		var data any
 		var err error
-		if selectRe.MatchString(stmt) {
+		if rowQueryRe.MatchString(stmt) {
 			rows, qErr := tx.Query(stmt)
 			if qErr != nil {
 				err = qErr
