@@ -1,3 +1,4 @@
 creds.json
 out
 query.sql
+creds-*.json
